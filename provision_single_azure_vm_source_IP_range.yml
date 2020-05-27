@@ -1,0 +1,147 @@
+---
+
+- name: Automate provisioning of virtual macine's on Azure Cloud
+  hosts: localhost
+  connection: local
+
+  vars_prompt:
+
+    - name: resourcegroup
+      prompt: "Enter the resource group name"
+      private: no
+
+
+    - name: virtualnetwork
+      prompt: "Enter virtual network name"
+      private: no
+
+    - name: location
+      prompt: "Enter location"
+      private: no
+
+    - name: passwordvm1
+      prompt: "Enter local administrator password for vm1"
+      private: no
+
+    - name: subnet
+      prompt: "Enter subnet name"
+      private: no
+
+  vars:
+       - virtualmachine1: vm1
+
+  tasks:
+    - name: Create resource group
+      azure_rm_resourcegroup:
+        name: "{{ resourcegroup }}"
+        location: "{{ location }}"
+
+    - name: Create virtual network
+      azure_rm_virtualnetwork:
+        resource_group: "{{ resourcegroup }}"
+        name: "{{ virtualnetwork }}"
+        address_prefixes_cidr:
+           - "10.2.0.0/16"
+
+    - name: Add subnet
+      azure_rm_subnet:
+        resource_group: "{{ resourcegroup }}"
+        name: "{{ subnet }}"
+        address_prefix_cidr: "10.2.1.0/24"
+        virtual_network_name: "{{ virtualnetwork }}"
+        state: present
+
+    - name: Create public IP address for vm1
+      azure_rm_publicipaddress:
+        resource_group: "{{ resourcegroup }}"
+        allocation_method: Static
+        name: "{{ virtualmachine1 }}PIP"
+        state: present
+      register: output_ip_address_vm1
+
+
+    - name: Show Public IP address for vm1
+      debug:
+        msg: "The public IP for vm1 is {{ output_ip_address_vm1.state.ip_address }}"
+
+
+    - name: Create Network Security Group
+      azure_rm_securitygroup:
+        resource_group: "{{ resourcegroup }}"
+        name: "{{ item }}"
+        rules:
+          - name: 'allow_rdp'
+            protocol: Tcp
+            source_address_prefix: '10.0.0.0/24'
+            destination_port_range: 3389
+            access: Allow
+            priority: 1001
+            direction: Inbound
+          - name: 'allow_web_traffic'
+            protocol: Tcp
+            destination_port_range:
+              - 80
+              - 443
+            access: Allow
+            priority: 1002
+            direction: Inbound
+          - name: 'allow_powershell_remoting'
+            protocol: Tcp
+            destination_port_range: 
+              - 5985
+              - 5986
+            access: Allow
+            priority: 1003
+            direction: Inbound
+      with_items:
+               - "{{ virtualmachine1 }}NSG"
+
+    - name: Create a network interface for vm1
+      azure_rm_networkinterface:
+        name: "{{ virtualmachine1 }}NIC"
+        resource_group: "{{ resourcegroup }}"
+        virtual_network: "{{ virtualnetwork }}"
+        subnet_name: "{{ subnet }}"
+        security_group: "{{ virtualmachine1 }}NSG"
+        state: present
+        ip_configurations:
+          - name: default
+            public_ip_address_name: "{{ virtualmachine1 }}PIP"
+            private_ip_address: 10.2.1.6
+            private_ip_allocation_method: Static
+            primary: True
+
+
+    - name: Create a first VM1
+      azure_rm_virtualmachine:
+         resource_group: "{{ resourcegroup }}"
+         name: "{{ virtualmachine1 }}"
+         vm_size: Standard_B1ms
+         managed_disk_type: Premium_LRS
+         admin_username: chs_admin
+         admin_password: "{{ passwordvm1 }}"
+         network_interfaces: "{{ virtualmachine1 }}NIC"
+         os_type: Windows
+         subnet_name: "{{ subnet }}"
+         image:
+           offer: WindowsServer
+           publisher: MicrosoftWindowsServer
+           sku: 2016-Datacenter
+           version: latest
+
+
+    - name: Enable Backup policy on VM
+      shell: az backup vault create --resource-group "{{ resourcegroup }}" --name myvault --location eastus2
+    
+
+    - name: Pause for 1 minute
+      pause:
+        minutes: 1
+
+
+    - name: Enable Backup policy on VM
+      shell: az backup protection enable-for-vm --resource-group "{{ resourcegroup }}" --vault-name myvault --vm "{{ virtualmachine1 }}" --policy-name DefaultPolicy
+
+    - name: Pause for 1 minute  
+      pause:
+        minutes: 1
