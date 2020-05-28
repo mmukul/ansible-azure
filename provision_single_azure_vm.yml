@@ -125,20 +125,3 @@
            publisher: MicrosoftWindowsServer
            sku: 2016-Datacenter
            version: latest
-
-
-    - name: Enable Backup policy on VM
-      shell: az backup vault create --resource-group "{{ resourcegroup }}" --name myvault --location eastus2
-    
-
-    - name: Pause for 1 minute
-      pause:
-        minutes: 1
-
-
-    - name: Enable Backup policy on VM
-      shell: az backup protection enable-for-vm --resource-group "{{ resourcegroup }}" --vault-name myvault --vm "{{ virtualmachine1 }}" --policy-name DefaultPolicy
-
-    - name: Pause for 1 minute  
-      pause:
-        minutes: 1
